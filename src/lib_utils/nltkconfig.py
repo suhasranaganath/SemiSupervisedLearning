@@ -23,7 +23,7 @@ kDefaultNLK_datafolder=f"{projconfig.getRepoRoot()}/datasets/nltk_data"
 def getDataFolder() -> Path:
 	""" return '{kDevRoot}/datasets/nltk_data' """
 	root = projconfig.getDataFolder()
-	return root +'nltk_data' 	#ssl/datasets/nltk_data
+	return root / 'nltk_data' 	#ssl/datasets/nltk_data
 
 def set_default_datafolder(folder:str):
 	kDefaultNLK_datafolder = folder
