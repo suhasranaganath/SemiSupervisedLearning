@@ -429,7 +429,7 @@ class EM_SSL(object):
                 print('curr out-of-sample test acc: %0.2f%%' % (100 * curr_test_acc))
                 self.test_accuracy_hist[em_iter + 1] = curr_test_acc  # key 0 is for using only labeled data
             delta_improvement = prev_loss - curr_loss  # expect 0 <= curr_loss <= prev_loss
-            if 0<delta_improvement < self.min_em_loss_delta:
+            if delta_improvement < self.min_em_loss_delta:
                 print('Early stopping EM: delta improvement = %0.4f < min_delta = %0.4f'
                       % (delta_improvement, self.min_em_loss_delta))
                 break
