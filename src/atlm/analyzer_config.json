@@ -1,0 +1,10 @@
+[
+    {
+        "AnalyzerType":"analyzers.NamedEntityFieldAnalyzer",
+        "AnalyzerName":"NamedEntityAnalyzer"
+    },
+    {
+        "AnalyzerType":"analyzers.LemmatizationFieldAnalyzer",
+        "AnalyzerName":"Lemmatizer"
+    }
+]

@@ -15,15 +15,21 @@ from lib_utils import nltkconfig, torchutils
 from lib_utils.preprocessing import TextPreProcessor
 from lib_utils.expectation_maximization import EM_SSL
 from lib_utils.summarize_results import plot_test_acc
+import pandas as pd
+import random
+import math
+import data_preprocessing as data_pre
 
 
 def main(args):
     nltk_data_dir = args.nltk_data_dir
+    
     nltkconfig.set_nltk_datapath(mydatafolder=nltk_data_dir,
                                  override=True)
     english_stopwords = nltkconfig.get_english_stopwords(nltk_data_dir=nltk_data_dir)
     remove_zero_vocab_docs = False
     english_vocab = None
+
 
     # Set labeled training data size range for experiments
     n_labeled_train_samples_list = [int(s.strip()) for s in args.n_labeled.split(",")]  # [200, 500]
@@ -41,12 +47,34 @@ def main(args):
     processor = TextPreProcessor(n_unlabeled_train_samples=n_unlabeled_train,
                                  tokens_to_remove=english_stopwords,
                                  remove_zero_vocab_docs=remove_zero_vocab_docs,
+                                 label_vals_key=args.label_col,
                                  english_vocab=english_vocab,
                                  remove_fields=rmv_fields)
+    raw_data = data_pre.process_input_file(input_file_path=args.input_data_file, nltk_dir=nltk_data_dir)
+    #raw_data = pd.read_csv("global_data.csv")
+    global_data = raw_data[["Processed_Text",args.label_col]]
+
+    
+    unique_count = global_data[args.label_col].value_counts()
+    valid_classes = unique_count.loc[unique_count>1].index.values
+    valid_classes = valid_classes[valid_classes!='UNKNOWN']
+    unique_index = [l for l in range(len(valid_classes))]
+    valid_data = global_data[global_data[args.label_col].isin(valid_classes)].reset_index()
+    valid_data[args.label_col]= valid_data[args.label_col].replace(valid_classes,unique_index)
+    len_total_data = valid_data.shape[0]
+    overall_samples = [l for l in range(len_total_data)]
+
+
+    train_samples = random.sample(overall_samples,math.floor(0.7*len_total_data))
+    
+    test_samples = list(set(overall_samples)-set(train_samples))
+    train_data = valid_data.loc[train_samples,:]
+    test_data = valid_data.loc[test_samples,:]
+    
     # Initialize raw
-    processor.set_static_full_train_raw_data()
+    processor.set_static_full_train_raw_data(train_data,valid_classes)
     processor.set_static_raw_unlabeled_data()
-    processor.set_static_raw_test_data()
+    processor.set_static_raw_test_data(test_data)
 
     # Execute experiments
     test_acc_results = {}  # keys: n_labels, values: {only_labeled_acc, ssl_acc}
@@ -83,7 +111,8 @@ def main(args):
                        test_count_data=scaled_test_data,
                        test_label_vals=processor.full_test_label_vals,
                        max_em_iters=max_iters,
-                       min_em_loss_delta=min_delta)
+                       min_em_loss_delta=min_delta,
+                       num_labels = len(valid_classes))
 
         model.fit()
         test_acc_results[n_labeled_train_samples] = {"only_labeled_train": model.only_labeled_test_acc(),
@@ -107,13 +136,16 @@ if __name__ == '__main__':
                         'Example: 500,1000,1500,2000\n'
                         'Note: each value determines an experiment'
                         'Note: default label sampling is uniform; alternative is emperical\n',
-                        default='20,100,300,500,700,1000')
+                        default='100,200,300,500,700,1000')
+    parser.add_argument('--label_col', type=str, dest='label_col',
+                        help='Column for label',
+                        default='RootCauseL1')
     parser.add_argument('--n_unlabeled', type=int, dest='n_unlabeled',
                         help='Num unlabeled samples for training; '
                         'disjoint from labeled train samples.\n'
                         'Note: each experiment uses the same number of unlabeled samples,'
                         'but not necc the same subset since disjointness enforced in sampling',
-                        default=10000)
+                        default=2500)
     parser.add_argument('--max_iters', type=int, dest='max_iters',
                         help='max number of EM iterations per experiment;'
                         'same as num epochs since each iter uses all training data',
@@ -128,11 +160,14 @@ if __name__ == '__main__':
     parser.add_argument('--nltk_data_dir', type=str, dest='nltk_data_dir',
                         help='path to nltk data, including corpora/stopwords.\
                         If corpora/stopwords does not exist, download here.',
-                        default=nltkconfig.getDataFolder())
+                        default="C:\\Users\\sranganath\\Desktop\\nltk_data")
     parser.add_argument('--test_acc_plot_fname', type=str, dest='test_acc_plot_fname',
                         help='filename of test accuracy plot',
                         default='acc_plot_uniform_train_sampling.png')
-
+    
+    parser.add_argument('--input_data_file', type=str, dest='input_data_file',
+                        help='input csv',
+                        default='input.tsv')
     args = parser.parse_args()
     main(args)
 

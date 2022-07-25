@@ -20,8 +20,10 @@ Each "Eq" referes to an equation in [Nigam] Section 3.2.
 
 """
 
+from math import inf
 from typing import Dict
 import numpy as np
+import sys
 
 
 class EM_SSL(object):
@@ -48,7 +50,7 @@ class EM_SSL(object):
                  test_count_data: np.ndarray = None,
                  test_label_vals: np.ndarray = None,
                  doc_axis: int = 0, vocab_axis: int = 1,
-                 max_em_iters: int = 20, min_em_loss_delta: float = 1e-2):
+                 max_em_iters: int = 20, min_em_loss_delta: float = 1e-2,num_labels:int = 20):
 
         # Static vals
         self.labeled_count_data = labeled_count_data  # (n_docs, n_words) LABELED COUNT DATA
@@ -65,8 +67,8 @@ class EM_SSL(object):
             (len(self.labeled_count_data), len(label_vals))
         self.label_set = set(np.unique(label_vals))
         print('labeled train sample has %d unique labels' % len(self.label_set))
-        self.ordered_labels_list = list(range(20))
-        self.n_labels = 20  # len(self.label_set)
+        self.ordered_labels_list = list(range(num_labels))
+        self.n_labels =  num_labels # len(self.label_set)
         self.n_labeled_docs_per_class = np.zeros(self.n_labels)  # populated only once, in initial E_step
         # Dynamic vals: defined and updated in EM
         self.curr_class_idx = 0  # current class label, used to subset data
@@ -207,7 +209,8 @@ class EM_SSL(object):
             self.compute_word_counts_in_class()  # -> self.word_counts_per_class
             self.compute_total_words_in_class()  # -> self.total_word_count_per_class
             self.compute_theta_vocab_j()
-
+        self.theta_j_per_class[self.theta_j_per_class==0] = sys.float_info.min
+        self.theta_j_vocab_per_class[self.theta_j_vocab_per_class==0] = sys.float_info.min
         return None
 
     @staticmethod
@@ -216,8 +219,8 @@ class EM_SSL(object):
         max_log = np.max(log_factors)
         summand = np.exp(log_factors - max_log)
         log_of_sums = np.log(np.sum(summand)) + max_log
+        return np.nan_to_num(log_of_sums)
 
-        return log_of_sums
 
     def compute_unnormalized_class_log_probas_doc(self, doc_word_counts: np.ndarray) -> np.ndarray:
         """For fixed doc x_i, for each class j compute unnormalized log P(c = j | x = x_i; theta)
@@ -236,6 +239,7 @@ class EM_SSL(object):
         u_log_probas = np.log(self.theta_j_per_class) + \
                        np.array([np.sum(doc_word_counts * np.log(self.theta_j_vocab_per_class[j]), axis=0)
                                 for j in self.ordered_labels_list])
+        
 
         return u_log_probas
 
@@ -323,12 +327,15 @@ class EM_SSL(object):
         """
         # Compute log(P(theta_jt)) = log(prod_{i, j} theta_ij) = sum_{i,_j} (log(theta_ij)))
         theta_j_vocab_log = np.log(self.theta_j_vocab_per_class)  # shape = (n_classes, vocab_size)
+        
+
         log_proba_theta_j_vocab = np.sum(np.sum(theta_j_vocab_log, axis=0))  # float
 
         # Compute log(P(theta_j))
         log_proba_theta_j = np.sum(np.log(self.theta_j_per_class))  # float
 
         return log_proba_theta_j + log_proba_theta_j_vocab
+
 
     def compute_labeled_loss(self) -> float:
         """Compute loss attributed to labeled data: sum(log(probas)).
@@ -338,6 +345,7 @@ class EM_SSL(object):
         joint_log_factors = np.apply_along_axis(func1d=self.compute_unnormalized_class_log_probas_doc,
                                                 axis=self.vocab_axis,
                                                 arr=self.labeled_count_data)
+                                                
         # joint_log_factors shape = (n_train_count, n_labels): unnormalized "joint"
         joint_log_factors_labeled_data = np.array([joint_log_factors[k][self.label_vals[k]]
                                                    for k in range(len(joint_log_factors))])
@@ -421,7 +429,7 @@ class EM_SSL(object):
                 print('curr out-of-sample test acc: %0.2f%%' % (100 * curr_test_acc))
                 self.test_accuracy_hist[em_iter + 1] = curr_test_acc  # key 0 is for using only labeled data
             delta_improvement = prev_loss - curr_loss  # expect 0 <= curr_loss <= prev_loss
-            if delta_improvement < self.min_em_loss_delta:
+            if 0<delta_improvement < self.min_em_loss_delta:
                 print('Early stopping EM: delta improvement = %0.4f < min_delta = %0.4f'
                       % (delta_improvement, self.min_em_loss_delta))
                 break

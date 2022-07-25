@@ -42,46 +42,6 @@ import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.datasets import fetch_20newsgroups
 
-
-def remove_stop_words(text: str, tokens_to_remove: List[str]) -> str:
-    """Remove common stop words from sentence"""
-    new_text = ' '.join([x for x in text.split() if x not in tokens_to_remove])
-
-    return new_text
-
-
-def _stem(text: str, stemmer, min_len_stemmed: int = 2) -> str:
-    """Remove stemming from sentence"""
-    new_text = ' '.join([stemmer.stem(x) for x in text.split()])
-    new_text = ' '.join([x for x in new_text.split() if len(x) > min_len_stemmed])
-
-    return new_text
-
-
-def is_english(text: str, english_vocab: List[str]) -> str:
-    """Remove words not in english vocab."""
-    english_words_text = ' '.join([x for x in text.split() if x in english_vocab])
-
-    return english_words_text
-
-
-def _process_text(document_as_single_str: str, tokens_to_remove: List[str] = None,
-                  english_vocab: List[str] = None, stemmer=None) -> str:
-    """Basic text processing on a single string."""
-    filtered = document_as_single_str.lower()
-    filtered = re.sub('[^a-zA-Z]', ' ', filtered)
-    filtered = re.sub(r'\[[0-9]*\]', ' ', filtered)
-    filtered = re.sub(r'\s+', ' ', filtered)  # white space chars
-    if stemmer is not None:
-        filtered = _stem(filtered, stemmer=stemmer)
-    if tokens_to_remove is not None:
-        filtered = remove_stop_words(filtered, tokens_to_remove=tokens_to_remove)
-    if english_vocab is not None:
-        filtered = is_english(filtered, english_vocab=english_vocab)
-
-    return filtered
-
-
 def sample_partitions_indices(x: np.ndarray,
                               partition_vals: Set,
                               n_samples_per_part: int = 1,
@@ -99,7 +59,7 @@ def sample_partitions_indices(x: np.ndarray,
         part_indices = np.where(x == part)[0]  # tuple[0]
         # get sampled indices for this part
         sampled_indices = np.random.choice(a=part_indices,
-                                           size=n_samples_per_part,
+                                           size=min(n_samples_per_part,len(part_indices)),
                                            replace=sample_with_replacement)
         result.extend(sampled_indices)
 
@@ -125,7 +85,7 @@ class TextPreProcessor:
     def __init__(self, tokens_to_remove, english_vocab=None,
                  vocab_axis: int = 1,
                  label_names_key: str = "target_names",
-                 label_vals_key: str = "target",
+                 label_vals_key: str = "RootCauseL1",
                  remove_zero_vocab_docs: bool = True,
                  n_labeled_train_samples: int = 40,
                  n_unlabeled_train_samples: int = 1000,
@@ -175,21 +135,20 @@ class TextPreProcessor:
                                         shuffle=True,
                                         random_state=1,
                                         remove=self.remove_fields)
-
         return data_bunch
 
-    def set_static_full_train_raw_data(self) -> None:
+    def set_static_full_train_raw_data(self,train_data,label_vals) -> None:
         """Fetch raw train data; this method should only be called once."""
         # TODO: make optional if full train is already downloaded/cached
-        self.full_train_bunch = self.load_data(subset='train')  # 11,314  total samples
-        self.full_train_label_names = self.full_train_bunch[self.label_names_key]  # List[str], len = 20
-        self.full_train_data = np.array(self.full_train_bunch.data)  # np.ndarray[str]
+        self.full_train_label_names = label_vals  # List[str], len = 20
+        self.full_train_data = np.array(train_data["Processed_Text"])  # np.ndarray[str]
         print('full train raw data shape:', self.full_train_data.shape)
-        self.full_train_label_vals = np.array(self.full_train_bunch[self.label_vals_key])  # List[str]
+        self.full_train_label_vals = np.array(train_data[self.label_vals_key])  # List[str]
         print('min, max full train data label vals = %d, %d'
               % (min(self.full_train_label_vals), max(self.full_train_label_vals)))
 
         return None
+
 
     def set_static_raw_unlabeled_data(self) -> None:
         """Fix sample of 'unlabaled' data from full train."""
@@ -284,28 +243,13 @@ class TextPreProcessor:
 
         return None
 
-    def set_static_raw_test_data(self) -> None:
+    def set_static_raw_test_data(self,test_data) -> None:
         """Fetch and fix standard 20 NewsGroup Test Data; should only be called once"""
-        full_test_bunch = self.load_data(subset='test')
-        self.full_test_data = np.array(full_test_bunch.data)  # List[str]
-        self.full_test_label_vals = np.array(full_test_bunch[self.label_vals_key])
-
+        self.full_test_data = np.array(test_data["Processed_Text"])  # List[str]
+        self.full_test_label_vals = np.array(test_data[self.label_vals_key])
         return None
 
-    def process_documents_text(self, documents_array: np.ndarray) -> List[str]:
-        """Apply basic text pre-processing to loaded data."""
-        # print('received text_list:', text_list.shape, len(text_list))
-        assert len(documents_array) > 0, "Received no documents for text preprocessing"
-        if type(documents_array) == str or type(documents_array) == np.str_:
-            print("Warning in process_documents_text: "
-                  "received single doc as str, not array; converting to array")
-            documents_array = np.array([documents_array])
-        x_proc = [_process_text(document_as_single_str=doc,
-                                tokens_to_remove=self.tokens_to_remove,
-                                english_vocab=self.english_vocab)
-                  for doc in documents_array]
 
-        return x_proc
 
     def preprocess_data_to_array(self, subset: str = 'train') -> np.ndarray:
         """Preprocess text to 2-d array of word counts via count vectorization.
@@ -328,8 +272,7 @@ class TextPreProcessor:
             if len(self.labeled_train_data_sample) == 0:
                 raise Exception("(raw) train data not set; run set_train_raw_data()")
             data = self.labeled_train_data_sample
-            x_proc = self.process_documents_text(documents_array=data)
-            x_proc_vect = self.count_vectorizer.fit_transform(x_proc)  # scipy.sparse.csr.csr_matrix
+            x_proc_vect = self.count_vectorizer.fit_transform(data)  # scipy.sparse.csr.csr_matrix
             self.vocab = self.count_vectorizer.get_feature_names()  # List[str]
         else:
             assert self.count_vectorizer, "Count vectorizer not set, run subset='train' first"
@@ -343,8 +286,7 @@ class TextPreProcessor:
                 raise Exception("Preprocessing data type must be 'train', 'unlabeled', or 'test'")
             if len(data) == 0:
                 raise Exception("(raw) %s data not set; run\n set_test_raw_data()" % subset)
-            x_proc = self.process_documents_text(documents_array=data)
-            x_proc_vect = self.count_vectorizer.transform(x_proc)
+            x_proc_vect = self.count_vectorizer.transform(data)
         data_vect_array = x_proc_vect.toarray()
 
         return data_vect_array
