@@ -30,4 +30,4 @@ def getRepoRoot() -> Path:
 def getDataFolder() -> Path:
 	""" return '{kDevRoot}/datasets' """
 	root = getRepoRoot()
-	return root + '/datasets'
+	return root + 'datasets'
